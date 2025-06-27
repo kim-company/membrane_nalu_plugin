@@ -1,6 +1,8 @@
 defmodule Membrane.NALU.AnnexB do
+  alias Membrane.NALU.RBSP
+
   def parse_units!(payload, opts \\ []) do
-    opts = Keyword.validate!(opts, preserve_original: false)
+    opts = Keyword.validate!(opts, preserve_original: false, assume_aligned: true)
 
     Stream.unfold(payload, fn
       nil ->
@@ -14,54 +16,10 @@ defmodule Membrane.NALU.AnnexB do
   def format_units(units) do
     units
     |> Stream.map(fn x = %{payload: payload} ->
-      payload = escape_payload(payload)
-
+      payload = RBSP.escape(payload)
       prefix = Map.get(x, :prefix, <<0, 0, 1>>)
       <<prefix::binary, payload::binary>>
     end)
-  end
-
-  @doc """
-  Escapes the payload according to RBSP instructions.
-  """
-  def escape_payload(payload) when is_binary(payload) do
-    escape_payload(payload, [])
-  end
-
-  defp escape_payload(<<0x00, 0x00, third::8, rest::binary>>, acc) when third <= 0x03 do
-    escape_payload(<<third::8, rest::binary>>, [<<0x00, 0x00, 0x03>> | acc])
-  end
-
-  defp escape_payload(<<next::8, rest::binary>>, acc) do
-    escape_payload(rest, [next | acc])
-  end
-
-  defp escape_payload(<<>>, acc) do
-    acc
-    |> Enum.reverse()
-    |> :erlang.iolist_to_binary()
-  end
-
-  @doc """
-  Removes emulation prevention bytes (0x03).
-  """
-  def unescape_payload(payload) do
-    unescape_payload(payload, [])
-  end
-
-  defp unescape_payload(<<0x00, 0x00, 0x03, rest::binary>>, acc) do
-    data = <<0x00, 0x00>>
-    unescape_payload(rest, [data | acc])
-  end
-
-  defp unescape_payload(<<next::8, rest::binary>>, acc) do
-    unescape_payload(rest, [next | acc])
-  end
-
-  defp unescape_payload(<<>>, acc) do
-    acc
-    |> Enum.reverse()
-    |> :erlang.iolist_to_binary()
   end
 
   defp parse_next_unit(<<0, 0, 0, 1, rest::binary>>, [], opts) do
@@ -89,19 +47,30 @@ defmodule Membrane.NALU.AnnexB do
   end
 
   defp parse_next_unit(<<>>, acc, opts) do
-    {finalize_unit(acc, opts), nil}
+    if opts[:assume_aligned] do
+      {finalize_unit(acc, opts), nil}
+    else
+      {reject_partial_unit(acc), nil}
+    end
+  end
+
+  defp reject_partial_unit(acc) do
+    payload =
+      acc
+      |> Enum.reverse()
+      |> :erlang.iolist_to_binary()
+
+    {:retry, payload}
   end
 
   defp finalize_unit(iodata, opts) do
     [prefix | rest] = Enum.reverse(iodata)
-
     original_payload = :erlang.iolist_to_binary(rest)
-    payload = unescape_payload(original_payload)
 
-    x = %{prefix: prefix, payload: payload}
+    x = %{prefix: prefix, payload: RBSP.unescape(original_payload)}
 
     if opts[:preserve_original] do
-      Map.merge(x, %{original: original_payload})
+      Map.put(x, :original, original_payload)
     else
       x
     end

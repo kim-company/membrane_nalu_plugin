@@ -65,26 +65,30 @@ defmodule Membrane.NALU do
   }
 
   @doc """
-  Parses a payload of H26x AnnexB units.
+  Parses a payload of AnnexB units.
   """
   def parse_units!(payload, opts \\ []) do
     payload
     |> AnnexB.parse_units!(opts)
-    |> Stream.map(fn x ->
-      <<header::binary-size(1)-unit(8), payload::binary>> = x.payload
-      header = parse_header(header)
+    |> Stream.map(fn
+      {:retry, data} ->
+        {:retry, data}
 
-      slice_header =
-        if get_in(header, [:type, :id]) in [:non_idr_slice, :idr_slice] do
-          parse_slice_header(payload)
-        else
-          %{}
-        end
+      x ->
+        <<header::binary-size(1)-unit(8), payload::binary>> = x.payload
+        header = parse_header(header)
 
-      x
-      |> put_in([:payload], payload)
-      |> put_in([:header], header)
-      |> put_in([:slice_header], slice_header)
+        slice_header =
+          if get_in(header, [:type, :id]) in [:non_idr_slice, :idr_slice] do
+            parse_slice_header(payload)
+          else
+            %{}
+          end
+
+        x
+        |> put_in([:payload], payload)
+        |> put_in([:header], header)
+        |> put_in([:slice_header], slice_header)
     end)
   end
 
