@@ -4,11 +4,11 @@ defmodule Membrane.NALU.Parser do
   alias Membrane.NALU
 
   def_input_pad(:input,
-    accepted_format: _
+    accepted_format: Membrane.RemoteStream
   )
 
   def_output_pad(:output,
-    accepted_format: NALU.Format
+    accepted_format: Membrane.RemoteStream
   )
 
   def_options(
@@ -22,6 +22,8 @@ defmodule Membrane.NALU.Parser do
       """,
       default: :aud
     ],
+    # TODO: instead of making the user choose, we could check wether the input
+    # remote stream is packetized or not, which has the same meaning.
     assume_aligned: [
       spec: boolean(),
       description: """
@@ -42,7 +44,12 @@ defmodule Membrane.NALU.Parser do
 
   @impl true
   def handle_stream_format(:input, _format, _ctx, state) do
-    {[stream_format: {:output, %NALU.Format{alignment: state.alignment}}], state}
+    format = %Membrane.RemoteStream{
+      content_format: %NALU.Format{alignment: state.alignment},
+      type: :packetized
+    }
+
+    {[stream_format: {:output, format}], state}
   end
 
   @impl true
@@ -121,7 +128,7 @@ defmodule Membrane.NALU.Parser do
   defp units_to_buffer(units, {dts, pts}) do
     is_keyframe =
       units
-      |> Enum.filter(fn x -> x.header.type == :idr_slice end)
+      |> Enum.filter(fn x -> x.header.type.id == :idr_slice end)
       |> Enum.any?()
 
     payload =
@@ -134,7 +141,7 @@ defmodule Membrane.NALU.Parser do
       pts: pts,
       dts: dts,
       metadata: %{
-        is_keyframe: is_keyframe
+        is_keyframe?: is_keyframe
       }
     }
   end
