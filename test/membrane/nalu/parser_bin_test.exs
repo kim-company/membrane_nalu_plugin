@@ -1,4 +1,4 @@
-defmodule Membrane.NALU.ParserTest do
+defmodule Membrane.NALU.ParserBinTest do
   use ExUnit.Case, async: true
   alias Membrane.NALU
 
@@ -15,18 +15,22 @@ defmodule Membrane.NALU.ParserTest do
            {:handle_child_notification, {{:buffer, buffer}, :sink}}} ->
             {[buffer], pid}
 
-          {Membrane.Testing.Pipeline, ^pid, {:handle_element_end_of_stream, {:sink, :input}}} ->
+          {Membrane.Testing.Pipeline, ^pid,
+           {:handle_child_notification, {{:end_of_stream, :input}, :sink}}} ->
             {:halt, pid}
+        after
+          3_000 ->
+            raise "test timeout"
         end
       end,
-      fn pid -> Membrane.Testing.Pipeline.terminate(pid) end
+      fn pid -> Membrane.Testing.Pipeline.terminate(pid, force?: true) end
     )
   end
 
   test "Parses valid NALU units, NALU alignment" do
     [
       child(:source, %Membrane.File.Source{location: @input})
-      |> child(:parser, %NALU.Parser{alignment: :nalu})
+      |> child(:parser, %NALU.ParserBin{alignment: :nalu})
       |> child(:sink, Membrane.Testing.Sink)
     ]
     |> consume_pipeline()
@@ -39,14 +43,14 @@ defmodule Membrane.NALU.ParserTest do
   test "Parses valid NALU units, AU alignment" do
     [
       child(:source, %Membrane.File.Source{location: @input})
-      |> child(:parser, %NALU.Parser{alignment: :aud})
+      |> child(:parser, %NALU.ParserBin{alignment: :aud})
       |> child(:sink, Membrane.Testing.Sink)
     ]
     |> consume_pipeline()
     |> Enum.each(fn buffer ->
       units = NALU.parse_units!(buffer.payload) |> Enum.into([])
       assert length(units) >= 1
-      assert List.first(units).metadata.header.id == :aud
+      assert List.first(units).header.type.id == :aud
     end)
   end
 end
