@@ -1,5 +1,6 @@
 defmodule Membrane.NALU.ParserTest do
   use ExUnit.Case, async: true
+  alias Membrane.NALU
 
   import Membrane.ChildrenSpec
 
@@ -24,18 +25,28 @@ defmodule Membrane.NALU.ParserTest do
 
   test "Parses valid NALU units, NALU alignment" do
     [
-      child(:source, %Membrane.File.Source{
-        location: @input
-      })
-      |> child(:parser, %Membrane.NALU.Parser{
-        alignment: :nalu
-      })
+      child(:source, %Membrane.File.Source{location: @input})
+      |> child(:parser, %NALU.Parser{alignment: :nalu})
       |> child(:sink, Membrane.Testing.Sink)
     ]
     |> consume_pipeline()
     |> Enum.each(fn buffer ->
-      dbg(buffer)
-      # TODO: confirm it only contains 1 unit.
+      units = NALU.parse_units!(buffer.payload) |> Enum.into([])
+      assert length(units) == 1
+    end)
+  end
+
+  test "Parses valid NALU units, AU alignment" do
+    [
+      child(:source, %Membrane.File.Source{location: @input})
+      |> child(:parser, %NALU.Parser{alignment: :aud})
+      |> child(:sink, Membrane.Testing.Sink)
+    ]
+    |> consume_pipeline()
+    |> Enum.each(fn buffer ->
+      units = NALU.parse_units!(buffer.payload) |> Enum.into([])
+      assert length(units) >= 1
+      assert List.first(units).metadata.header.id == :aud
     end)
   end
 end

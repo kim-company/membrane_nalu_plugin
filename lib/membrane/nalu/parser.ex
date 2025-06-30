@@ -15,7 +15,7 @@ defmodule Membrane.NALU.Parser do
     alignment: [
       spec: :aud | :nalu,
       description: """
-      - au: group of units starting with an Access Unit Delimiter (useful for PES packaging)
+      - aud: group of units starting with an Access Unit Delimiter (useful for PES packaging)
       - nalu: each unit in its own buffer. Note: PTS/DTS values are going to be
         repeated, as they target AU units, not each single NALU.
       """,
@@ -24,7 +24,7 @@ defmodule Membrane.NALU.Parser do
     assume_aligned: [
       spec: boolean(),
       description: """
-      When true, assumes that each input buffer contains a list of complete NALU units. This happens for example when parsing an MPEG-TS PES payload.
+      When true, assumes that each input buffer contains a list of complete NALU units. This happens for example when parsing an MPEG-TS PES payload. Timing is forwarded from input to output buffers only alignment is :aud and assume_aligned==true, as in the other cases 
       """,
       default: false
     ]

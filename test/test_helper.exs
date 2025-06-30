@@ -1,1 +1,1 @@
-ExUnit.start(capture_logs: true)
+ExUnit.start(capture_log: true)
