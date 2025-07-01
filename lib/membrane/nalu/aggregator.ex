@@ -62,10 +62,10 @@ defmodule Membrane.NALU.Aggregator do
 
   def handle_buffer(:input, buffer, _ctx, state) do
     chunk_fun = fn
-      unit, [] when unit.header.id == :aud ->
+      unit, [] when unit.header.type.id == :aud ->
         {:cont, [unit]}
 
-      unit, acc when unit.header.id == :aud ->
+      unit, acc when unit.header.type.id == :aud ->
         {:cont, Enum.reverse(acc), [unit]}
 
       unit, acc ->
@@ -77,9 +77,10 @@ defmodule Membrane.NALU.Aggregator do
       acc -> {:cont, Enum.reverse(acc), []}
     end
 
+    acc = Enum.concat(state.acc, buffer_to_timed_units(buffer))
+
     {frames, pending} =
-      state.acc
-      |> Enum.concat(buffer_to_timed_units(buffer))
+      acc
       |> Enum.chunk_while([], chunk_fun, after_fun)
       |> Enum.split(-1)
 
