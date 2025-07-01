@@ -57,7 +57,7 @@ defmodule Membrane.NALU.Parser do
     buffers =
       buffer.payload
       |> NALU.parse_units!(assume_aligned: true)
-      |> units_to_buffers({buffer.dts, buffer.pts})
+      |> units_to_buffers({buffer.pts, buffer.dts})
 
     {[buffer: {:output, buffers}], state}
   end
