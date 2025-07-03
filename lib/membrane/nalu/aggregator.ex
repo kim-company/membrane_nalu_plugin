@@ -97,10 +97,8 @@ defmodule Membrane.NALU.Aggregator do
   defp timed_units_to_buffer([]), do: nil
 
   defp timed_units_to_buffer([h | _] = timed_units) do
-    is_keyframe =
-      timed_units
-      |> Enum.filter(fn x -> x.header.type.id == :idr_slice end)
-      |> Enum.any?()
+    unit_ids = Enum.map(timed_units, fn x -> x.header.type.id end)
+    is_keyframe = :idr_slice in unit_ids
 
     payload =
       timed_units
@@ -112,7 +110,8 @@ defmodule Membrane.NALU.Aggregator do
       pts: h.pts,
       dts: h.dts,
       metadata: %{
-        is_keyframe?: is_keyframe
+        is_keyframe?: is_keyframe,
+        units: unit_ids
       }
     }
   end
