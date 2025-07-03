@@ -51,6 +51,13 @@ defmodule Membrane.NALU.ParserBinTest do
       units = NALU.parse_units!(buffer.payload) |> Enum.into([])
       assert length(units) >= 1
       assert List.first(units).header.type.id == :aud
+
+      if buffer.metadata.is_keyframe? do
+        [:aud, :sps, :idr_slice]
+        |> Enum.each(fn x ->
+          assert x in Enum.map(units, fn u -> u.header.type.id end)
+        end)
+      end
     end)
   end
 end
