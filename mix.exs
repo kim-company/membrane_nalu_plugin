@@ -27,7 +27,8 @@ defmodule Membrane.NALU.MixProject do
     [
       {:membrane_core, "~> 1.2"},
       {:membrane_file_plugin, "~> 0.17", only: :test},
-      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false},
+      {:benchee, "~> 1.3", only: :dev}
     ]
   end
 
