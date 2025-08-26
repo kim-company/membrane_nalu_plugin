@@ -92,19 +92,80 @@ defmodule Membrane.NALU do
     end)
   end
 
+  # Cache for common slice type codes
+  @slice_type_cache %{
+    0 => %{id: :p, name: "P slice (P frame only)", code: 0},
+    1 => %{id: :b, name: "B slice (B frame only)", code: 1},
+    2 => %{id: :i, name: "I slice (I frame only)", code: 2},
+    5 => %{id: :p_mixed, name: "P slice (mixed frame, primarily P)", code: 5},
+    6 => %{id: :b_mixed, name: "B slice (mixed frame, primarily B)", code: 6},
+    7 => %{id: :i_mixed, name: "I slice (mixed frame, primarily I)", code: 7}
+  }
+
   defp parse_slice_header(payload) do
-    {_first_mb_in_slice, payload} = decode_uev(payload)
-    {slice_type_code, _payload} = decode_uev(payload)
-
-    type =
-      @nalu_slice_type
-      |> Map.get(slice_type_code, %{id: :unknown, name: "Unknown NALU slice type"})
-      |> Map.merge(%{code: slice_type_code})
-
-    %{type: type}
+    # Fast path for common cases - avoid UEV decoding when possible
+    case payload do
+      # Common patterns for first_mb_in_slice=0 and common slice types
+      <<1::1, 0::7, rest::binary>> -> fast_parse_slice_type(rest, 0) # first_mb=0 (most common)
+      <<1::1, 1::7, rest::binary>> -> fast_parse_slice_type(rest, 1) # first_mb=1
+      _ -> parse_slice_header_full(payload)
+    end
   end
 
-  defp parse_header(<<0::1, prio::2, type::5>>) do
+  defp fast_parse_slice_type(payload, first_mb) do
+    case payload do
+      # slice_type = 0 (P slice)
+      <<1::1, _rest::binary>> ->
+        %{type: @slice_type_cache[0], first_mb_in_slice: first_mb}
+      
+      # slice_type = 1 (B slice) 
+      <<1::1, 0::1, 1::1, _rest::binary>> ->
+        %{type: @slice_type_cache[1], first_mb_in_slice: first_mb}
+        
+      # slice_type = 2 (I slice)
+      <<1::1, 0::2, 1::1, _rest::binary>> ->
+        %{type: @slice_type_cache[2], first_mb_in_slice: first_mb}
+        
+      _ -> 
+        # Fall back to full parsing
+        parse_slice_header_full(<<1::1, first_mb::7, payload::binary>>)
+    end
+  end
+
+  defp parse_slice_header_full(payload) do
+    {first_mb_in_slice, payload} = decode_uev(payload)
+    {slice_type_code, _payload} = decode_uev(payload)
+
+    type = Map.get(@slice_type_cache, slice_type_code) ||
+           @nalu_slice_type
+           |> Map.get(slice_type_code, %{id: :unknown, name: "Unknown NALU slice type"})
+           |> Map.merge(%{code: slice_type_code})
+
+    %{type: type, first_mb_in_slice: first_mb_in_slice}
+  end
+
+  # Cache for common header combinations - significant performance improvement
+  @header_cache %{
+    <<0::1, 0::2, 1::5>> => %{type: %{id: :non_idr_slice, code: 1, name: "Coded slice of a non-IDR picture", common_role: "P/B frames"}, priority: 0},
+    <<0::1, 0::2, 5::5>> => %{type: %{id: :idr_slice, code: 5, name: "Coded slice of an IDR picture (keyframe)", common_role: "I-frames"}, priority: 0},
+    <<0::1, 0::2, 6::5>> => %{type: %{id: :sei, code: 6, name: "Supplemental enhancement information", common_role: "Captions, timing, HDR, etc."}, priority: 0},
+    <<0::1, 0::2, 7::5>> => %{type: %{id: :sps, code: 7, name: "Sequence parameter set", common_role: "Stream-level info"}, priority: 0},
+    <<0::1, 0::2, 8::5>> => %{type: %{id: :pps, code: 8, name: "Picture parameter set", common_role: "Picture-level info"}, priority: 0},
+    <<0::1, 0::2, 9::5>> => %{type: %{id: :aud, code: 9, name: "Access unit delimiter", common_role: "Frame boundary marker"}, priority: 0},
+    <<0::1, 1::2, 1::5>> => %{type: %{id: :non_idr_slice, code: 1, name: "Coded slice of a non-IDR picture", common_role: "P/B frames"}, priority: 1},
+    <<0::1, 1::2, 5::5>> => %{type: %{id: :idr_slice, code: 5, name: "Coded slice of an IDR picture (keyframe)", common_role: "I-frames"}, priority: 1},
+    <<0::1, 2::2, 1::5>> => %{type: %{id: :non_idr_slice, code: 1, name: "Coded slice of a non-IDR picture", common_role: "P/B frames"}, priority: 2},
+    <<0::1, 2::2, 5::5>> => %{type: %{id: :idr_slice, code: 5, name: "Coded slice of an IDR picture (keyframe)", common_role: "I-frames"}, priority: 2}
+  }
+
+  defp parse_header(header_byte) do
+    case Map.get(@header_cache, header_byte) do
+      nil -> parse_header_dynamic(header_byte)
+      cached_header -> cached_header
+    end
+  end
+
+  defp parse_header_dynamic(<<0::1, prio::2, type::5>>) do
     make_header(type, prio)
   end
 

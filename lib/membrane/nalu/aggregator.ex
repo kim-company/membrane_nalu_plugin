@@ -26,7 +26,7 @@ defmodule Membrane.NALU.Aggregator do
 
   @impl true
   def handle_init(_ctx, opts) do
-    {[], %{alignment: opts.alignment, acc: []}}
+    {[], %{alignment: opts.alignment, acc: [], pending_reverse: []}}
   end
 
   @impl true
@@ -61,11 +61,13 @@ defmodule Membrane.NALU.Aggregator do
   end
 
   def handle_buffer(:input, buffer, _ctx, state) do
+    # Optimized chunking using a simpler approach
     chunk_fun = fn
       unit, [] when unit.header.type.id == :aud ->
         {:cont, [unit]}
 
       unit, acc when unit.header.type.id == :aud ->
+        # Reverse only once per complete frame
         {:cont, Enum.reverse(acc), [unit]}
 
       unit, acc ->
@@ -77,7 +79,8 @@ defmodule Membrane.NALU.Aggregator do
       acc -> {:cont, Enum.reverse(acc), []}
     end
 
-    acc = Enum.concat(state.acc, buffer_to_timed_units(buffer))
+    # Use more efficient list concatenation
+    acc = state.acc ++ buffer_to_timed_units(buffer)
 
     {frames, pending} =
       acc
@@ -97,10 +100,18 @@ defmodule Membrane.NALU.Aggregator do
   defp timed_units_to_buffer([]), do: nil
 
   defp timed_units_to_buffer([h | _] = timed_units) do
-    unit_ids = Enum.map(timed_units, fn x -> x.header.type.id end)
-    is_keyframe = :idr_slice in unit_ids
+    # Pre-allocate and collect unit_ids while checking for keyframes
+    {unit_ids, is_keyframe} = 
+      Enum.reduce(timed_units, {[], false}, fn unit, {ids_acc, keyframe_acc} ->
+        unit_id = unit.header.type.id
+        {[unit_id | ids_acc], keyframe_acc || unit_id == :idr_slice}
+      end)
 
-    payload =
+    # Reverse ids to maintain order (more efficient than map + reverse)
+    unit_ids = Enum.reverse(unit_ids)
+
+    # Format units and collect into binary efficiently
+    payload = 
       timed_units
       |> NALU.format_units()
       |> Enum.into(<<>>)

@@ -28,7 +28,7 @@ defmodule Membrane.NALU.Parser do
 
   @impl true
   def handle_init(_ctx, opts) do
-    {[], %{assume_aligned: opts.assume_aligned, partial: <<>>}}
+    {[], %{assume_aligned: opts.assume_aligned, partial: []}}
   end
 
   @impl true
@@ -37,19 +37,24 @@ defmodule Membrane.NALU.Parser do
   end
 
   @impl true
-  def handle_end_of_stream(:input, _ctx, state = %{partial: <<>>}) do
+  def handle_end_of_stream(:input, _ctx, state = %{partial: []}) do
     {[end_of_stream: :output], state}
   end
 
-  def handle_end_of_stream(:input, _ctx, state = %{partial: partial}) do
+  def handle_end_of_stream(:input, _ctx, state = %{partial: partial}) when length(partial) > 0 do
+    partial_binary = :erlang.iolist_to_binary(partial)
     buffers =
-      partial
+      partial_binary
       |> NALU.parse_units!()
       |> units_to_buffers({nil, nil})
 
-    state = put_in(state, [:partial], <<>>)
+    state = put_in(state, [:partial], [])
 
     {[buffer: {:output, buffers}, end_of_stream: :output], state}
+  end
+
+  def handle_end_of_stream(:input, _ctx, state) do
+    {[end_of_stream: :output], state}
   end
 
   @impl true
@@ -63,8 +68,12 @@ defmodule Membrane.NALU.Parser do
   end
 
   def handle_buffer(:input, buffer, _ctx, state) do
+    # Use iodata list for efficient accumulation
+    combined_iodata = [state.partial, buffer.payload]
+    combined_binary = :erlang.iolist_to_binary(combined_iodata)
+    
     {units, later} =
-      (state.partial <> buffer.payload)
+      combined_binary
       |> NALU.parse_units!(assume_aligned: false)
       |> Enum.split_with(fn
         {:retry, _data} -> false
@@ -77,8 +86,8 @@ defmodule Membrane.NALU.Parser do
 
     state =
       case later do
-        [] -> put_in(state, [:partial], <<>>)
-        [{:retry, val}] -> put_in(state, [:partial], val)
+        [] -> put_in(state, [:partial], [])
+        [{:retry, val}] -> put_in(state, [:partial], [val])  # Keep as iodata
       end
 
     buffers = units_to_buffers(units, {nil, nil})
