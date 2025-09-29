@@ -1,5 +1,5 @@
 defmodule Membrane.NALU do
-  alias Membrane.NALU.AnnexB
+  alias Membrane.NALU.{AnnexB, SPS}
 
   @nalu_reserved_types %{
     1 => %{
@@ -85,10 +85,21 @@ defmodule Membrane.NALU do
             %{}
           end
 
+        sps_info =
+          if get_in(header, [:type, :id]) == :sps do
+            case SPS.parse(payload) do
+              {:ok, sps} -> sps
+              {:error, _reason} -> %{parse_error: true}
+            end
+          else
+            %{}
+          end
+
         x
         |> put_in([:payload], payload)
         |> put_in([:header], header)
         |> put_in([:slice_header], slice_header)
+        |> put_in([:sps], sps_info)
     end)
   end
 
@@ -204,6 +215,13 @@ defmodule Membrane.NALU do
 
   def decode_uev(payload) do
     decode_uev(payload, 0)
+  end
+
+  def decode_sev(payload) do
+    {uev, rest} = decode_uev(payload)
+    # Convert unsigned to signed using se(v) formula
+    sev = if rem(uev, 2) == 0, do: -div(uev, 2), else: div(uev + 1, 2)
+    {sev, rest}
   end
 
   defp decode_uev(<<>>, n) when n > 0 do

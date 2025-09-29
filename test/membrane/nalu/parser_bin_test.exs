@@ -60,4 +60,56 @@ defmodule Membrane.NALU.ParserBinTest do
       end
     end)
   end
+
+  test "SPS buffers contain expected metadata" do
+    sps_units =
+      [
+        child(:source, %Membrane.File.Source{location: @input})
+        |> child(:parser, %NALU.ParserBin{alignment: :nalu})
+        |> child(:sink, Membrane.Testing.Sink)
+      ]
+      |> consume_pipeline()
+      |> Enum.flat_map(fn buffer ->
+        buffer.metadata.units
+        |> Enum.filter(fn {x, _} -> x == :sps end)
+        |> Enum.map(&elem(&1, 1))
+      end)
+
+    assert length(sps_units) > 0, "Expected to find at least one SPS buffer"
+
+    sps_units
+    |> Enum.each(fn sps ->
+      assert sps == %{
+               constraint_flags: %{
+                 constraint_set0_flag: false,
+                 constraint_set1_flag: false,
+                 constraint_set2_flag: false,
+                 constraint_set3_flag: false,
+                 constraint_set4_flag: false,
+                 constraint_set5_flag: false
+               },
+               bit_depth_chroma_minus8: 0,
+               bit_depth_luma_minus8: 0,
+               chroma_format_idc: 1,
+               cropping: %{left: 0, right: 0, bottom: 0, top: 0},
+               direct_8x8_inference_flag: true,
+               frame_cropping_flag: false,
+               frame_mbs_only_flag: true,
+               gaps_in_frame_num_value_allowed_flag: false,
+               level_idc: 31,
+               log2_max_frame_num_minus4: 0,
+               max_num_ref_frames: 4,
+               mb_adaptive_frame_field_flag: false,
+               pic_height_in_map_units_minus1: 44,
+               pic_order_cnt_info: %{log2_max_pic_order_cnt_lsb_minus4: 2},
+               pic_order_cnt_type: 0,
+               pic_width_in_mbs_minus1: 79,
+               profile_idc: 100,
+               resolution: %{width: 1280, height: 720, raw_height: 720, raw_width: 1280},
+               separate_colour_plane_flag: false,
+               seq_parameter_set_id: 0,
+               vui_parameters_present_flag: true
+             }
+    end)
+  end
 end
