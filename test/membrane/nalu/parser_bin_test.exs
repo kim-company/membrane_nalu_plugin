@@ -108,7 +108,30 @@ defmodule Membrane.NALU.ParserBinTest do
                resolution: %{width: 1280, height: 720, raw_height: 720, raw_width: 1280},
                separate_colour_plane_flag: false,
                seq_parameter_set_id: 0,
-               vui_parameters_present_flag: true
+               vui_parameters_present_flag: true,
+               vui_parameters: %{
+                 aspect_ratio_info_present_flag: true,
+                 aspect_ratio_info: %{aspect_ratio_idc: 1},
+                 overscan_info_present_flag: false,
+                 overscan_appropriate_flag: false,
+                 video_signal_type_present_flag: false,
+                 video_signal_info: %{},
+                 chroma_loc_info_present_flag: false,
+                 chroma_sample_loc_info: %{},
+                 timing_info_present_flag: true,
+                 timing_info: %{
+                   num_units_in_tick: 1,
+                   time_scale: 60,
+                   fixed_frame_rate_flag: false
+                 },
+                 nal_hrd_parameters_present_flag: false,
+                 nal_hrd_parameters: %{},
+                 vcl_hrd_parameters_present_flag: false,
+                 vcl_hrd_parameters: %{},
+                 low_delay_hrd_flag: false,
+                 bitstream_restriction_flag: false,
+                 bitstream_restriction_info: %{}
+               }
              }
     end)
   end
