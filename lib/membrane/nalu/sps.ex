@@ -363,12 +363,23 @@ defmodule Membrane.NALU.SPS do
 
     {bitstream_restriction_info, rest} =
       if bitstream_restriction_flag == 1 do
-        # Parse all bitstream restriction parameters but we'll skip the implementation for brevity
-        # In a full implementation, this would parse motion_vectors_over_pic_boundaries_flag,
-        # max_bytes_per_pic_denom, max_bits_per_mb_denom, log2_max_mv_length_horizontal,
-        # log2_max_mv_length_vertical, max_num_reorder_frames, max_dec_frame_buffering
-        # Placeholder
-        {%{present: true}, rest}
+        <<motion_vectors_over_pic_boundaries_flag::1, rest::bitstring>> = rest
+        {max_bytes_per_pic_denom, rest} = NALU.decode_uev(rest)
+        {max_bits_per_mb_denom, rest} = NALU.decode_uev(rest)
+        {log2_max_mv_length_horizontal, rest} = NALU.decode_uev(rest)
+        {log2_max_mv_length_vertical, rest} = NALU.decode_uev(rest)
+        {num_reorder_frames, rest} = NALU.decode_uev(rest)
+        {max_dec_frame_buffering, rest} = NALU.decode_uev(rest)
+
+        {%{
+           motion_vectors_over_pic_boundaries_flag: motion_vectors_over_pic_boundaries_flag == 1,
+           max_bytes_per_pic_denom: max_bytes_per_pic_denom,
+           max_bits_per_mb_denom: max_bits_per_mb_denom,
+           log2_max_mv_length_horizontal: log2_max_mv_length_horizontal,
+           log2_max_mv_length_vertical: log2_max_mv_length_vertical,
+           num_reorder_frames: num_reorder_frames,
+           max_dec_frame_buffering: max_dec_frame_buffering
+         }, rest}
       else
         {%{}, rest}
       end
