@@ -75,11 +75,12 @@ defmodule Membrane.NALU.ParserBinTest do
     ]
     |> consume_pipeline()
     |> Enum.each(fn buffer ->
-      sps = Enum.find(buffer.metadata.units, fn {x, _} -> x == :sps end)
+      sps = Enum.find_index(buffer.metadata.units, fn x -> x == :sps end)
 
-      with {:sps, %{offset: offset, size: size}} <- sps,
-           <<_skip::binary-size(offset), sps::binary-size(size), _rest::binary>> = buffer.payload,
-           {:ok, sps} = NALU.parse_nal_payload(:sps, sps) do
+      if sps != nil do
+        %{offset: offset, size: size} = Enum.at(buffer.metadata.offsets, sps)
+        <<_skip::binary-size(offset), sps::binary-size(size), _rest::binary>> = buffer.payload
+        {:ok, sps} = NALU.parse_nal_payload(:sps, sps)
         assert is_map(sps)
         assert map_size(sps) > 0
       end
