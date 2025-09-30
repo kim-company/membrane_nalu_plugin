@@ -93,9 +93,7 @@ defmodule Membrane.NALU.Parser do
         pts: pts,
         dts: dts,
         metadata: %{
-          header: x.header,
-          slice_header: x.slice_header,
-          sps: x.sps
+          header: x.header
         }
       }
     end)

@@ -82,32 +82,13 @@ defmodule Membrane.NALU do
         <<header_byte::binary-size(1)-unit(8), payload::binary>> = x.payload
         header = parse_header(header_byte)
 
-        slice_header =
-          if get_in(header, [:type, :id]) in [:non_idr_slice, :idr_slice] do
-            parse_slice_header(payload)
-          else
-            %{}
-          end
-
-        sps_info =
-          if get_in(header, [:type, :id]) == :sps do
-            case SPS.parse(payload) do
-              {:ok, sps} -> sps
-              {:error, _reason} -> %{parse_error: true}
-            end
-          else
-            %{}
-          end
-
         x
         |> put_in([:payload], payload)
         |> put_in([:header], header)
-        |> put_in([:slice_header], slice_header)
-        |> put_in([:sps], sps_info)
     end)
   end
 
-  defp parse_slice_header(payload) do
+  def parse_nal_payload(type, payload) when type in [:idr_slice, :non_idr_slice] do
     {_first_mb_in_slice, payload} = decode_uev(payload)
     {slice_type_code, _payload} = decode_uev(payload)
 
@@ -116,8 +97,17 @@ defmodule Membrane.NALU do
       |> Map.get(slice_type_code, %{id: :unknown, name: "Unknown NALU slice type"})
       |> Map.merge(%{code: slice_type_code})
 
-    %{type: type}
+    {:ok, %{type: type}}
   end
+
+  def parse_nal_payload(:sps, payload) do
+    case SPS.parse(payload) do
+      {:ok, sps} -> {:ok, sps}
+      {:error, _reason} -> {:error, :invalid_sps_payload}
+    end
+  end
+
+  def parse_nal_payload(_, _payload), do: {:error, :parsing_not_implemented}
 
   defp parse_header(<<0::1, prio::2, type::5>>) do
     make_header(type, prio)

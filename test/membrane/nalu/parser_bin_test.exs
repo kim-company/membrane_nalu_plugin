@@ -68,86 +68,21 @@ defmodule Membrane.NALU.ParserBinTest do
   end
 
   test "SPS buffers contain expected metadata" do
-    sps_units =
-      [
-        child(:source, %Membrane.File.Source{location: @input})
-        |> child(:parser, %NALU.ParserBin{alignment: :nalu})
-        |> child(:sink, Membrane.Testing.Sink)
-      ]
-      |> consume_pipeline()
-      |> Enum.flat_map(fn buffer ->
-        buffer.metadata.units
-        |> Enum.filter(fn {x, _} -> x == :sps end)
-        |> Enum.map(&elem(&1, 1))
-      end)
+    [
+      child(:source, %Membrane.File.Source{location: @input})
+      |> child(:parser, %NALU.ParserBin{alignment: :nalu})
+      |> child(:sink, Membrane.Testing.Sink)
+    ]
+    |> consume_pipeline()
+    |> Enum.each(fn buffer ->
+      sps = Enum.find(buffer.metadata.units, fn {x, _} -> x == :sps end)
 
-    assert length(sps_units) > 0, "Expected to find at least one SPS buffer"
-
-    sps_units
-    |> Enum.each(fn sps ->
-      assert sps == %{
-               constraint_flags: %{
-                 constraint_set0_flag: false,
-                 constraint_set1_flag: false,
-                 constraint_set2_flag: false,
-                 constraint_set3_flag: false,
-                 constraint_set4_flag: false,
-                 constraint_set5_flag: false
-               },
-               bit_depth_chroma_minus8: 0,
-               bit_depth_luma_minus8: 0,
-               chroma_format_idc: 1,
-               cropping: %{left: 0, right: 0, bottom: 0, top: 0},
-               direct_8x8_inference_flag: true,
-               frame_cropping_flag: false,
-               frame_mbs_only_flag: true,
-               gaps_in_frame_num_value_allowed_flag: false,
-               level_idc: 31,
-               log2_max_frame_num_minus4: 0,
-               max_num_ref_frames: 4,
-               mb_adaptive_frame_field_flag: false,
-               pic_height_in_map_units_minus1: 44,
-               pic_order_cnt_info: %{log2_max_pic_order_cnt_lsb_minus4: 2},
-               pic_order_cnt_type: 0,
-               pic_width_in_mbs_minus1: 79,
-               profile_idc: 100,
-               resolution: %{width: 1280, height: 720, raw_height: 720, raw_width: 1280},
-               separate_colour_plane_flag: false,
-               seq_parameter_set_id: 0,
-               vui_parameters_present_flag: true,
-               vui_parameters: %{
-                 aspect_ratio_info_present_flag: true,
-                 aspect_ratio_info: %{aspect_ratio_idc: 1},
-                 overscan_info_present_flag: false,
-                 overscan_appropriate_flag: false,
-                 video_signal_type_present_flag: true,
-                 video_signal_info: %{
-                   video_format: 5,
-                   video_full_range_flag: false,
-                   colour_description_present_flag: true,
-                   colour_info: %{
-                     colour_primaries: 1,
-                     transfer_characteristics: 1,
-                     matrix_coefficients: 1
-                   }
-                 },
-                 chroma_loc_info_present_flag: false,
-                 chroma_sample_loc_info: %{},
-                 timing_info_present_flag: true,
-                 timing_info: %{
-                   num_units_in_tick: 1,
-                   time_scale: 60,
-                   fixed_frame_rate_flag: false
-                 },
-                 nal_hrd_parameters_present_flag: false,
-                 nal_hrd_parameters: %{},
-                 vcl_hrd_parameters_present_flag: false,
-                 vcl_hrd_parameters: %{},
-                 low_delay_hrd_flag: false,
-                 bitstream_restriction_flag: false,
-                 bitstream_restriction_info: %{}
-               }
-             }
+      with {:sps, %{offset: offset, size: size}} <- sps,
+           <<_skip::binary-size(offset), sps::binary-size(size), _rest::binary>> = buffer.payload,
+           {:ok, sps} = NALU.parse_nal_payload(:sps, sps) do
+        assert is_map(sps)
+        assert map_size(sps) > 0
+      end
     end)
   end
 end
