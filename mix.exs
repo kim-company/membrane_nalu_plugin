@@ -27,6 +27,7 @@ defmodule Membrane.NALU.MixProject do
     [
       {:membrane_core, "~> 1.2"},
       {:membrane_file_plugin, "~> 0.17", only: :test},
+      {:membrane_mpeg_ts_plugin, ">= 0.0.0", only: :test},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end

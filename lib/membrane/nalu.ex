@@ -70,13 +70,17 @@ defmodule Membrane.NALU do
   def parse_units!(payload, opts \\ []) do
     payload
     |> AnnexB.parse_units!(opts)
+    |> Stream.filter(fn
+      {:retry, _data} -> true
+      %{payload: <<forbidden_bit::1, _rest::bitstring>>} -> forbidden_bit == 0
+    end)
     |> Stream.map(fn
       {:retry, data} ->
         {:retry, data}
 
       x ->
-        <<header::binary-size(1)-unit(8), payload::binary>> = x.payload
-        header = parse_header(header)
+        <<header_byte::binary-size(1)-unit(8), payload::binary>> = x.payload
+        header = parse_header(header_byte)
 
         slice_header =
           if get_in(header, [:type, :id]) in [:non_idr_slice, :idr_slice] do

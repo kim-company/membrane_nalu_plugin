@@ -6,10 +6,75 @@ defmodule Membrane.NALU.SPSTest do
   # SPS fixtures - RBSP-unescaped payloads without NAL header byte
   # Extracted from real test data using existing NALU parsing code
   @real_sps Base.decode64!("ZAAfrNlAUAW7ARAAAAAQAAADwPGDGWA=")
+  @zee_sps Base.decode64!("ZAAorQDsB4BEfeAoQEBAUAAAABAAAAMuIgABAFkAAL2y33uDEQAAgCyAAF7ZT73AoA==")
 
   @all_fixtures [@real_sps]
 
   describe "parse/1" do
+    test "parses ZeeTV SPS data" do
+      assert {:ok, sps} = SPS.parse(@zee_sps)
+
+      assert sps == %{
+               bit_depth_chroma_minus8: 0,
+               bit_depth_luma_minus8: 0,
+               chroma_format_idc: 1,
+               constraint_flags: %{
+                 constraint_set0_flag: false,
+                 constraint_set1_flag: false,
+                 constraint_set2_flag: false,
+                 constraint_set3_flag: false,
+                 constraint_set4_flag: false,
+                 constraint_set5_flag: false
+               },
+               cropping: %{left: 0, right: 0, bottom: 0, top: 0},
+               direct_8x8_inference_flag: true,
+               frame_cropping_flag: false,
+               frame_mbs_only_flag: true,
+               gaps_in_frame_num_value_allowed_flag: true,
+               level_idc: 40,
+               log2_max_frame_num_minus4: 471,
+               max_num_ref_frames: 135,
+               mb_adaptive_frame_field_flag: false,
+               pic_height_in_map_units_minus1: 0,
+               pic_order_cnt_info: %{},
+               pic_order_cnt_type: 29,
+               pic_width_in_mbs_minus1: 0,
+               profile_idc: 100,
+               resolution: %{width: 16, height: 16, raw_height: 16, raw_width: 16},
+               separate_colour_plane_flag: false,
+               seq_parameter_set_id: 0,
+               vui_parameters: %{
+                 aspect_ratio_info: %{aspect_ratio_idc: 192},
+                 aspect_ratio_info_present_flag: true,
+                 bitstream_restriction_flag: false,
+                 bitstream_restriction_info: %{},
+                 chroma_loc_info_present_flag: false,
+                 chroma_sample_loc_info: %{},
+                 low_delay_hrd_flag: false,
+                 nal_hrd_parameters: %{},
+                 nal_hrd_parameters_present_flag: false,
+                 overscan_appropriate_flag: false,
+                 overscan_info_present_flag: false,
+                 timing_info: %{
+                   fixed_frame_rate_flag: false,
+                   num_units_in_tick: 16_843_072,
+                   time_scale: 64
+                 },
+                 timing_info_present_flag: true,
+                 vcl_hrd_parameters: %{},
+                 vcl_hrd_parameters_present_flag: false,
+                 video_signal_info: %{
+                   colour_description_present_flag: false,
+                   colour_info: %{},
+                   video_format: 2,
+                   video_full_range_flag: false
+                 },
+                 video_signal_type_present_flag: true
+               },
+               vui_parameters_present_flag: true
+             }
+    end
+
     test "parses real SPS data from test file" do
       assert {:ok, sps} = SPS.parse(@real_sps)
 

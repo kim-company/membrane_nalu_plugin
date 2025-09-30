@@ -4,7 +4,7 @@ defmodule Membrane.NALU.ParserBinTest do
 
   import Membrane.ChildrenSpec
 
-  @input "test/data/input.h264"
+  @input "test/data/avsync.ts"
 
   def consume_pipeline(spec) do
     Stream.resource(
@@ -30,6 +30,8 @@ defmodule Membrane.NALU.ParserBinTest do
   test "Parses valid NALU units, NALU alignment" do
     [
       child(:source, %Membrane.File.Source{location: @input})
+      |> child(:demuxer, Membrane.MPEG.TS.Demuxer)
+      |> via_out(:output, options: [pid: 0x100])
       |> child(:parser, %NALU.ParserBin{alignment: :nalu})
       |> child(:sink, Membrane.Testing.Sink)
     ]
@@ -43,7 +45,9 @@ defmodule Membrane.NALU.ParserBinTest do
   test "Parses valid NALU units, AU alignment" do
     [
       child(:source, %Membrane.File.Source{location: @input})
-      |> child(:parser, %NALU.ParserBin{alignment: :aud})
+      |> child(:demuxer, Membrane.MPEG.TS.Demuxer)
+      |> via_out(:output, options: [pid: 0x100])
+      |> child(:parser, %NALU.ParserBin{alignment: :aud, assume_aligned: true})
       |> child(:sink, Membrane.Testing.Sink)
     ]
     |> consume_pipeline()
@@ -52,7 +56,9 @@ defmodule Membrane.NALU.ParserBinTest do
       assert length(units) >= 1
       assert List.first(units).header.type.id == :aud
 
-      if buffer.metadata.is_keyframe? do
+      is_keyframe = buffer.metadata.is_keyframe?
+
+      if is_keyframe do
         [:aud, :sps, :idr_slice]
         |> Enum.each(fn x ->
           assert x in Enum.map(units, fn u -> u.header.type.id end)
@@ -114,8 +120,17 @@ defmodule Membrane.NALU.ParserBinTest do
                  aspect_ratio_info: %{aspect_ratio_idc: 1},
                  overscan_info_present_flag: false,
                  overscan_appropriate_flag: false,
-                 video_signal_type_present_flag: false,
-                 video_signal_info: %{},
+                 video_signal_type_present_flag: true,
+                 video_signal_info: %{
+                   video_format: 5,
+                   video_full_range_flag: false,
+                   colour_description_present_flag: true,
+                   colour_info: %{
+                     colour_primaries: 1,
+                     transfer_characteristics: 1,
+                     matrix_coefficients: 1
+                   }
+                 },
                  chroma_loc_info_present_flag: false,
                  chroma_sample_loc_info: %{},
                  timing_info_present_flag: true,

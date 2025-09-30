@@ -28,4 +28,31 @@ defmodule Membrane.NALUTest do
       """
     end)
   end
+
+  test "uev decoding" do
+    # Known Exponential-Golomb encodings:
+    # 0 -> b1
+    # 1 -> b010
+    # 2 -> b011
+    # 3 -> b00100
+    # 4 -> b00101
+
+    test_cases = [
+      # "1" + padding
+      {<<1::1, 0::7>>, 0},
+      # "010" + padding
+      {<<0::1, 1::1, 0::1, 0::5>>, 1},
+      # "011" + padding
+      {<<0::1, 1::1, 1::1, 0::5>>, 2},
+      # "00100" + padding
+      {<<0::2, 1::1, 0::2, 0::3>>, 3},
+      # "00101" + padding
+      {<<0::2, 1::1, 0::1, 1::1, 0::3>>, 4}
+    ]
+
+    for {binary, expected} <- test_cases do
+      {result, _} = NALU.decode_uev(binary)
+      assert result == expected
+    end
+  end
 end
