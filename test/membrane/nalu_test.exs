@@ -2,17 +2,18 @@ defmodule Membrane.NALUTest do
   use ExUnit.Case,
     async: true,
     parameterize: [
-      %{input: "test/data/input.h264"}
+      %{input: "test/data/avsync.ts"}
     ]
 
   alias Membrane.NALU
 
   test "NALU stream is not mangled with parsing", %{input: input} do
     input
-    |> File.read!()
+    |> MPEG.TS.Demuxer.stream_file!()
+    |> Enum.filter(fn %{pid: x} -> x == 0x100 end)
+    |> Enum.map(fn x -> x.payload.data end)
+    |> Enum.join(<<>>)
     |> NALU.parse_units!(preserve_original: true)
-    # We only take 20 otherwise the test runs for too long for HD inputs.
-    |> Enum.take(20)
     |> Stream.with_index()
     |> Enum.each(fn {unit, index} ->
       formatted = NALU.format_units([unit]) |> Enum.into(<<>>)
