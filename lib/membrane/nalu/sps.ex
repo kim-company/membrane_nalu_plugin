@@ -458,4 +458,25 @@ defmodule Membrane.NALU.SPS do
     # For now, just assume no scaling lists are present and return rest unchanged
     rest
   end
+
+  @doc """
+  Returns the nominal framerate from VUI timing info, if present.
+  """
+  def framerate_from_vui(%{vui_parameters_present_flag: true, vui_parameters: vui}) do
+    case vui do
+      %{
+        timing_info_present_flag: true,
+        timing_info: %{
+          num_units_in_tick: num_units_in_tick,
+          time_scale: time_scale
+        }
+      } when num_units_in_tick > 0 and time_scale > 0 ->
+        {time_scale, 2 * num_units_in_tick}
+
+      _ ->
+        nil
+    end
+  end
+
+  def framerate_from_vui(_), do: nil
 end

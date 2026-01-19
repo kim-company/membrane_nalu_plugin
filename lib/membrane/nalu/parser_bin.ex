@@ -31,6 +31,21 @@ defmodule Membrane.NALU.ParserBin do
         repeated, as they target AU units, not each single NALU.
       """,
       default: :aud
+    ],
+    require_framerate?: [
+      spec: boolean(),
+      description: """
+      When true, buffers are held until an SPS with VUI timing info is received.
+      The output stream format is emitted with framerate before any buffers.
+      """,
+      default: false
+    ],
+    max_pending_units: [
+      spec: pos_integer(),
+      description: """
+      Maximum number of output units to buffer while waiting for framerate.
+      """,
+      default: 120
     ]
   )
 
@@ -39,7 +54,11 @@ defmodule Membrane.NALU.ParserBin do
     spec = [
       bin_input(:input)
       |> child(:parser, %NALU.Parser{assume_aligned: opts.assume_aligned})
-      |> child(:aggregator, %NALU.Aggregator{alignment: opts.alignment})
+      |> child(:aggregator, %NALU.Aggregator{
+        alignment: opts.alignment,
+        require_framerate?: opts.require_framerate?,
+        max_pending_units: opts.max_pending_units
+      })
       |> bin_output(:output)
     ]
 
