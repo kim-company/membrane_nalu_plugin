@@ -5,6 +5,7 @@ defmodule Membrane.NALU.ParserBinTest do
   import Membrane.ChildrenSpec
 
   @input "test/data/avsync.ts"
+  @real_sps Base.decode64!("ZAAfrNlAUAW7ARAAAAAQAAADwPGDGWA=")
   @sps_with_vui Base.decode64!("ZAAfrNlAUAW7ARAAAAAQAAADwPGDGWA=")
 
   defp annexb_unit(nal_type, payload, nal_ref_idc) do
@@ -155,7 +156,7 @@ defmodule Membrane.NALU.ParserBinTest do
     assert inspect(reason) =~ "framerate"
   end
 
-  test "derives framerate from PTS when VUI timing is absent" do
+  test "derives framerate from DTS when VUI timing is absent" do
     aud_payload = <<0, 0, 0, 1, 0x09, 0xF0>>
     delta = div(Membrane.Time.second(), 30)
 
@@ -188,5 +189,122 @@ defmodule Membrane.NALU.ParserBinTest do
            } = format
 
     Membrane.Testing.Pipeline.terminate(pid, force?: true)
+  end
+
+  test "injects parameter sets for IDR access units when enabled" do
+    buffers =
+      [
+        child(:source, %Membrane.File.Source{location: @input})
+        |> child(:demuxer, Membrane.MPEG.TS.Demuxer)
+        |> via_out(:output, options: [pid: 0x100])
+        |> child(:parser, %NALU.ParserBin{
+          alignment: :aud,
+          assume_aligned: true,
+          manage_parameter_sets?: true,
+          repeat_parameter_sets?: true,
+          require_idr?: true
+        })
+        |> child(:sink, Membrane.Testing.Sink)
+      ]
+      |> consume_pipeline()
+
+    buffer = Enum.find(buffers, fn buffer -> :idr_slice in buffer.metadata.units end)
+    assert buffer
+    assert :sps in buffer.metadata.units
+    assert :pps in buffer.metadata.units
+  end
+
+  test "caches SPS/PPS and injects them into IDR access units" do
+    buffers = [
+      %Membrane.Buffer{
+        payload: aud_unit() <> sps_unit() <> pps_unit()
+      },
+      %Membrane.Buffer{
+        payload: aud_unit() <> idr_unit()
+      }
+    ]
+
+    spec = [
+      child(:source, %Membrane.Testing.Source{
+        output: buffers,
+        stream_format: %Membrane.RemoteStream{}
+      })
+      |> child(:parser, %NALU.ParserBin{
+        alignment: :aud,
+        assume_aligned: true,
+        manage_parameter_sets?: true,
+        repeat_parameter_sets?: true,
+        require_idr?: true
+      })
+      |> child(:sink, Membrane.Testing.Sink)
+    ]
+
+    pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
+
+    assert_receive {Membrane.Testing.Pipeline, ^pid,
+                    {:handle_child_notification, {{:buffer, buffer}, :sink}}}, 3_000
+
+    assert :idr_slice in buffer.metadata.units
+    assert :sps in buffer.metadata.units
+    assert :pps in buffer.metadata.units
+
+    Membrane.Testing.Pipeline.terminate(pid, force?: true)
+  end
+
+  test "does not inject parameter sets when repeat_parameter_sets? is false" do
+    buffers = [
+      %Membrane.Buffer{
+        payload: aud_unit() <> sps_unit() <> pps_unit()
+      },
+      %Membrane.Buffer{
+        payload: aud_unit() <> idr_unit()
+      }
+    ]
+
+    spec = [
+      child(:source, %Membrane.Testing.Source{
+        output: buffers,
+        stream_format: %Membrane.RemoteStream{}
+      })
+      |> child(:parser, %NALU.ParserBin{
+        alignment: :aud,
+        assume_aligned: true,
+        manage_parameter_sets?: true,
+        repeat_parameter_sets?: false,
+        require_idr?: true
+      })
+      |> child(:sink, Membrane.Testing.Sink)
+    ]
+
+    pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
+
+    assert_receive {Membrane.Testing.Pipeline, ^pid,
+                    {:handle_child_notification, {{:buffer, buffer}, :sink}}}, 3_000
+
+    assert :idr_slice in buffer.metadata.units
+    refute :sps in buffer.metadata.units
+    refute :pps in buffer.metadata.units
+
+    Membrane.Testing.Pipeline.terminate(pid, force?: true)
+  end
+
+  defp aud_unit do
+    nalu_unit(0x09, <<0xF0>>)
+  end
+
+  defp sps_unit do
+    nalu_unit(0x67, @real_sps)
+  end
+
+  defp pps_unit do
+    nalu_unit(0x68, <<0x00>>)
+  end
+
+  defp idr_unit do
+    nalu_unit(0x65, <<0x00>>)
+  end
+
+  defp nalu_unit(header, payload) do
+    <<0, 0, 0, 1, header, payload::binary>>
   end
 end

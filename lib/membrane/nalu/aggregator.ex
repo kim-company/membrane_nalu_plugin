@@ -25,6 +25,29 @@ defmodule Membrane.NALU.Aggregator do
       """,
       default: :aud
     ],
+    manage_parameter_sets?: [
+      spec: boolean(),
+      description: """
+      When true, SPS/PPS units are cached and injected into IDR access units.
+      Access units are dropped until SPS, PPS, and an IDR are seen (unless
+      `require_idr?` is false).
+      """,
+      default: false
+    ],
+    require_idr?: [
+      spec: boolean(),
+      description: """
+      When true, output is gated until the first IDR access unit is seen.
+      """,
+      default: true
+    ],
+    repeat_parameter_sets?: [
+      spec: boolean(),
+      description: """
+      When true, cached SPS/PPS units are prepended to IDR access units.
+      """,
+      default: true
+    ],
     require_framerate?: [
       spec: boolean(),
       description: """
@@ -49,14 +72,19 @@ defmodule Membrane.NALU.Aggregator do
      %{
        alignment: opts.alignment,
        acc: [],
-      require_framerate?: opts.require_framerate?,
-      max_pending_units: opts.max_pending_units,
+       manage_parameter_sets?: opts.manage_parameter_sets?,
+       require_idr?: opts.require_idr?,
+       repeat_parameter_sets?: opts.repeat_parameter_sets?,
+       require_framerate?: opts.require_framerate?,
+       max_pending_units: opts.max_pending_units,
        framerate: nil,
        last_dts: nil,
-      stream_format_sent?: false,
-      pending_outputs: [],
-      pending_units: 0
-    }}
+       sps_cache: [],
+       pps_cache: [],
+       stream_format_sent?: false,
+       pending_outputs: [],
+       pending_units: 0
+     }}
   end
 
   @impl true
@@ -83,7 +111,7 @@ defmodule Membrane.NALU.Aggregator do
       raise "framerate not detected before end of stream"
     end
 
-    buffer = timed_units_to_buffer(acc)
+    {buffer, state} = timed_units_to_buffer(acc, state)
     state = put_in(state, [:acc], [])
     {buffer_actions, state} = emit_buffers(List.wrap(buffer), state)
     {buffer_actions ++ [end_of_stream: :output], state}
@@ -93,12 +121,12 @@ defmodule Membrane.NALU.Aggregator do
   def handle_buffer(:input, buffer, _ctx, state = %{alignment: :nalu}) do
     state = maybe_update_framerate(buffer, state)
 
-    buffers =
+    {buffer, state} =
       buffer
       |> buffer_to_timed_units()
-      |> timed_units_to_buffer()
+      |> timed_units_to_buffer(state)
 
-    emit_buffers(List.wrap(buffers), state)
+    emit_buffers(List.wrap(buffer), state)
   end
 
   def handle_buffer(:input, buffer, _ctx, state) do
@@ -129,17 +157,25 @@ defmodule Membrane.NALU.Aggregator do
 
     state = put_in(state, [:acc], List.flatten(pending))
 
-    buffers =
-      frames
-      |> Enum.map(fn units -> timed_units_to_buffer(units) end)
-      |> Enum.reject(&is_nil/1)
+    {buffers, state} =
+      Enum.map_reduce(frames, state, fn units, state ->
+        {buffer, state} = timed_units_to_buffer(units, state)
+        {buffer, state}
+      end)
+
+    buffers = Enum.reject(buffers, &is_nil/1)
 
     emit_buffers(buffers, state)
   end
 
-  defp timed_units_to_buffer([]), do: nil
+  defp timed_units_to_buffer([], state), do: {nil, state}
 
-  defp timed_units_to_buffer([h | _] = timed_units) do
+  defp timed_units_to_buffer([h | _] = timed_units, state) do
+    {timed_units, state} = maybe_manage_parameter_sets(timed_units, state)
+
+    if timed_units == :drop do
+      {nil, state}
+    else
     unit_ids = Enum.map(timed_units, fn x -> x.header.type.id end)
 
     {unit_offsets, _} =
@@ -156,7 +192,7 @@ defmodule Membrane.NALU.Aggregator do
       |> NALU.format_units()
       |> Enum.into(<<>>)
 
-    %Membrane.Buffer{
+    buffer = %Membrane.Buffer{
       payload: payload,
       pts: h.pts,
       dts: h.dts,
@@ -166,6 +202,9 @@ defmodule Membrane.NALU.Aggregator do
         offsets: unit_offsets
       }
     }
+
+    {buffer, state}
+    end
   end
 
   defp buffer_to_timed_unit(buffer) do
@@ -249,10 +288,7 @@ defmodule Membrane.NALU.Aggregator do
        ) do
     case NALU.parse_nal_payload(:sps, buffer.payload) do
       {:ok, sps} ->
-        framerate = SPS.framerate_from_vui(sps)
-        Membrane.Logger.debug("SPS parsed, VUI framerate=#{inspect(framerate)}")
-
-        case framerate do
+        case SPS.framerate_from_vui(sps) do
           nil -> state
           framerate when is_nil(state.framerate) -> %{state | framerate: framerate}
           _framerate -> state
@@ -292,6 +328,50 @@ defmodule Membrane.NALU.Aggregator do
         else
           %{state | last_dts: dts}
         end
+    end
+  end
+
+  defp maybe_manage_parameter_sets(timed_units, %{manage_parameter_sets?: false} = state) do
+    {timed_units, state}
+  end
+
+  defp maybe_manage_parameter_sets(timed_units, state) do
+    unit_ids = Enum.map(timed_units, fn unit -> unit.header.type.id end)
+
+    {sps_cache, pps_cache} =
+      Enum.reduce(timed_units, {state.sps_cache, state.pps_cache}, fn unit, {sps_acc, pps_acc} ->
+        case unit.header.type.id do
+          :sps -> {[unit], pps_acc}
+          :pps -> {sps_acc, [unit]}
+          _ -> {sps_acc, pps_acc}
+        end
+      end)
+
+    state = %{state | sps_cache: sps_cache, pps_cache: pps_cache}
+
+    has_idr? = :idr_slice in unit_ids
+    has_sets? = sps_cache != [] and pps_cache != []
+
+    ready? =
+      if state.require_idr? do
+        has_sets? and has_idr?
+      else
+        has_sets?
+      end
+
+    if not ready? do
+      {:drop, state}
+    else
+      timed_units =
+        if state.repeat_parameter_sets? and has_idr? do
+          prepend_sps = if :sps in unit_ids, do: [], else: sps_cache
+          prepend_pps = if :pps in unit_ids, do: [], else: pps_cache
+          prepend_sps ++ prepend_pps ++ timed_units
+        else
+          timed_units
+        end
+
+      {timed_units, state}
     end
   end
 end

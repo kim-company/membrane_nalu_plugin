@@ -40,6 +40,23 @@ defmodule Membrane.NALU.ParserBin do
       """,
       default: false
     ],
+    manage_parameter_sets?: [
+      spec: boolean(),
+      description: """
+      When true, SPS/PPS units are cached and injected into IDR access units.
+      """,
+      default: false
+    ],
+    require_idr?: [
+      spec: boolean(),
+      description: "When true, output is gated until the first IDR access unit is seen.",
+      default: true
+    ],
+    repeat_parameter_sets?: [
+      spec: boolean(),
+      description: "When true, cached SPS/PPS units are prepended to IDR access units.",
+      default: true
+    ],
     max_pending_units: [
       spec: pos_integer(),
       description: """
@@ -57,6 +74,9 @@ defmodule Membrane.NALU.ParserBin do
       |> child(:aggregator, %NALU.Aggregator{
         alignment: opts.alignment,
         require_framerate?: opts.require_framerate?,
+        manage_parameter_sets?: opts.manage_parameter_sets?,
+        require_idr?: opts.require_idr?,
+        repeat_parameter_sets?: opts.repeat_parameter_sets?,
         max_pending_units: opts.max_pending_units
       })
       |> bin_output(:output)
