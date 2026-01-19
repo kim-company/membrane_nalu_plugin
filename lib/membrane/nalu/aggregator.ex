@@ -49,13 +49,14 @@ defmodule Membrane.NALU.Aggregator do
      %{
        alignment: opts.alignment,
        acc: [],
-       require_framerate?: opts.require_framerate?,
-       max_pending_units: opts.max_pending_units,
+      require_framerate?: opts.require_framerate?,
+      max_pending_units: opts.max_pending_units,
        framerate: nil,
-       stream_format_sent?: false,
-       pending_outputs: [],
-       pending_units: 0
-     }}
+       last_dts: nil,
+      stream_format_sent?: false,
+      pending_outputs: [],
+      pending_units: 0
+    }}
   end
 
   @impl true
@@ -248,7 +249,10 @@ defmodule Membrane.NALU.Aggregator do
        ) do
     case NALU.parse_nal_payload(:sps, buffer.payload) do
       {:ok, sps} ->
-        case SPS.framerate_from_vui(sps) do
+        framerate = SPS.framerate_from_vui(sps)
+        Membrane.Logger.debug("SPS parsed, VUI framerate=#{inspect(framerate)}")
+
+        case framerate do
           nil -> state
           framerate when is_nil(state.framerate) -> %{state | framerate: framerate}
           _framerate -> state
@@ -259,5 +263,35 @@ defmodule Membrane.NALU.Aggregator do
     end
   end
 
-  defp maybe_update_framerate(_buffer, state), do: state
+  defp maybe_update_framerate(buffer, state) do
+    maybe_update_framerate_from_pts(buffer, state)
+  end
+
+  defp maybe_update_framerate_from_pts(%Membrane.Buffer{dts: nil}, state), do: state
+
+  defp maybe_update_framerate_from_pts(%Membrane.Buffer{dts: dts}, state) do
+    cond do
+      not is_nil(state.framerate) ->
+        %{state | last_dts: dts}
+
+      is_nil(state.last_dts) ->
+        %{state | last_dts: dts}
+
+      dts == state.last_dts ->
+        state
+
+      true ->
+        delta = dts - state.last_dts
+
+        if delta > 0 do
+          Membrane.Logger.warning(
+            "Framerate derived from DTS delta: #{Membrane.Time.second()}/#{delta}"
+          )
+
+          %{state | framerate: {Membrane.Time.second(), delta}, last_dts: dts}
+        else
+          %{state | last_dts: dts}
+        end
+    end
+  end
 end

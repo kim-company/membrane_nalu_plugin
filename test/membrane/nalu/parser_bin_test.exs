@@ -154,4 +154,39 @@ defmodule Membrane.NALU.ParserBinTest do
     assert_receive {:DOWN, ^ref, :process, ^pid, reason}, 3_000
     assert inspect(reason) =~ "framerate"
   end
+
+  test "derives framerate from PTS when VUI timing is absent" do
+    aud_payload = <<0, 0, 0, 1, 0x09, 0xF0>>
+    delta = div(Membrane.Time.second(), 30)
+
+    buffers = [
+      %Membrane.Buffer{payload: aud_payload, pts: 0, dts: 0},
+      %Membrane.Buffer{payload: aud_payload, pts: delta, dts: delta}
+    ]
+
+    spec = [
+      child(:source, %Membrane.Testing.Source{
+        output: buffers,
+        stream_format: %Membrane.RemoteStream{}
+      })
+      |> child(:parser, %NALU.ParserBin{
+        alignment: :aud,
+        assume_aligned: true,
+        require_framerate?: true
+      })
+      |> child(:sink, Membrane.Testing.Sink)
+    ]
+
+    pid = Membrane.Testing.Pipeline.start_link_supervised!(spec: spec)
+
+    assert_receive {Membrane.Testing.Pipeline, ^pid,
+                    {:handle_child_notification, {{:stream_format, :input, format}, :sink}}},
+                   3_000
+
+    assert %Membrane.RemoteStream{
+             content_format: %NALU.Format{framerate: {_, ^delta}}
+           } = format
+
+    Membrane.Testing.Pipeline.terminate(pid, force?: true)
+  end
 end
